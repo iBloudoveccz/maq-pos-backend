@@ -2,7 +2,7 @@ import { PartialType } from '@nestjs/swagger';
 import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { CreateCustomerDto } from './dto/create-customer.dto';
+import { CreateCustomerDto } from './create-customer.dto';
 
 export class UpdateCustomerDto extends PartialType(CreateCustomerDto) {}
 

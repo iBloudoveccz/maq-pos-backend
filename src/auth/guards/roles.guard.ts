@@ -19,12 +19,18 @@ export class RolesGuard implements CanActivate {
 
     if (!user) throw new ForbiddenException('No autenticado');
 
-    // Admin siempre tiene acceso
-    if (user.role === 'admin') return true;
+    // Comparación case-insensitive: el enum UserRole en BD es MAYÚSCULAS (ADMIN, SELLER...)
+    // pero los controllers usan strings en minúsculas (@Roles('admin', 'seller')).
+    // Tanda 2: normalizar todo a UserRole enum y eliminar este toUpperCase().
+    const userRole = String(user.role ?? '').toUpperCase();
+    const required = requiredRoles.map((r) => r.toUpperCase());
 
-    if (!requiredRoles.includes(user.role)) {
+    // Admin siempre tiene acceso
+    if (userRole === 'ADMIN') return true;
+
+    if (!required.includes(userRole)) {
       throw new ForbiddenException(
-        `Acceso denegado. Roles permitidos: ${requiredRoles.join(', ')}`
+        `Acceso denegado. Roles permitidos: ${requiredRoles.join(', ')}`,
       );
     }
 
