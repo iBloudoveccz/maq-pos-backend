@@ -17,35 +17,28 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
-    // Buscar usuario por email
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
 
-    if (!user) {
-      throw new UnauthorizedException('Credenciales incorrectas');
-    }
+    if (!user) throw new UnauthorizedException('Credenciales incorrectas');
+    if (!user.isActive) throw new UnauthorizedException('Usuario inactivo. Contacta al administrador');
 
-    if (!user.isActive) {
-      throw new UnauthorizedException('Usuario inactivo. Contacta al administrador');
-    }
+    // FIX: era user.password → ahora user.passwordHash
+    const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!passwordValid) throw new UnauthorizedException('Credenciales incorrectas');
 
-    // Verificar contraseña
-    const passwordValid = await bcrypt.compare(dto.password, user.password);
-    if (!passwordValid) {
-      throw new UnauthorizedException('Credenciales incorrectas');
-    }
-
-    // Generar token
-    const token = await this.signToken(user.id, user.email, user.role, user.name);
+    // FIX: user.email puede ser null → usar ?? ''
+    const token = await this.signToken(user.id, user.email ?? '', user.role, user.name);
 
     return {
       accessToken: token,
       user: {
-        id: user.id,
-        name: user.name,
+        id:    user.id,
+        name:  user.name,
         email: user.email,
-        role: user.role,
+        role:  user.role,
+        code:  user.code,
       },
     };
   }
@@ -54,15 +47,15 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        isActive: true,
+        id:        true,
+        code:      true,
+        name:      true,
+        email:     true,
+        role:      true,
+        isActive:  true,
         createdAt: true,
       },
     });
-
     if (!user) throw new UnauthorizedException('Usuario no encontrado');
     return user;
   }
@@ -71,18 +64,16 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException();
 
-    // Verificar contraseña actual
-    const valid = await bcrypt.compare(dto.currentPassword, user.password);
-    if (!valid) {
-      throw new BadRequestException('La contraseña actual es incorrecta');
-    }
+    // FIX: era user.password → user.passwordHash
+    const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!valid) throw new BadRequestException('La contraseña actual es incorrecta');
 
-    // Hashear nueva contraseña
     const hashed = await bcrypt.hash(dto.newPassword, 10);
 
+    // FIX: era data: { password: hashed } → data: { passwordHash: hashed }
     await this.prisma.user.update({
       where: { id: userId },
-      data: { password: hashed },
+      data:  { passwordHash: hashed },
     });
 
     return { message: 'Contraseña actualizada correctamente' };

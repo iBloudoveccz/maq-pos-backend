@@ -1,70 +1,81 @@
-import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsBoolean,
+  Min,
+} from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class FilterPurchaseDto {
-  @ApiPropertyOptional({ example: 'supplier-uuid' })
   @IsOptional()
   @IsString()
   supplierId?: string;
 
-  @ApiPropertyOptional({ example: '2026-01-01' })
-  @IsOptional()
-  @IsString()
-  dateFrom?: string;
-
-  @ApiPropertyOptional({ example: '2026-12-31' })
-  @IsOptional()
-  @IsString()
-  dateTo?: string;
-
-  @ApiPropertyOptional({ example: 'Factura 001' })
   @IsOptional()
   @IsString()
   search?: string;
 
-  @ApiPropertyOptional({ example: 1 })
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  page?: number = 1;
+  @IsString()
+  dateFrom?: string;
 
-  @ApiPropertyOptional({ example: 20 })
+  @IsOptional()
+  @IsString()
+  dateTo?: string;
+
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  limit?: number = 20;
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  limit?: number;
 }
 
 export class CreateSupplierDto {
-  @ApiPropertyOptional({ example: 'Distribuidora Lima SAC' })
+  // FIX: 'code' es @unique y requerido en Supplier (equivale a Ghscode del S12)
+  @ApiProperty({ example: '619', description: 'Código único del proveedor (Ghscode)' })
+  @IsString()
+  code: string;
+
+  @ApiProperty({ example: 'Distribuidora SAC' })
   @IsString()
   name: string;
 
-  @ApiPropertyOptional({ example: '20123456789', description: 'RUC del proveedor' })
+  @ApiPropertyOptional({ example: '20123456789' })
   @IsOptional()
   @IsString()
   ruc?: string;
 
-  @ApiPropertyOptional({ example: '+51 987654321' })
+  @ApiPropertyOptional({ example: 'Juan Pérez' })
+  @IsOptional()
+  @IsString()
+  contactName?: string;
+
+  @ApiPropertyOptional({ example: '987654321' })
   @IsOptional()
   @IsString()
   phone?: string;
 
-  @ApiPropertyOptional({ example: 'ventas@distribuidora.com' })
+  @ApiPropertyOptional({ example: 'proveedor@email.com' })
   @IsOptional()
   @IsString()
   email?: string;
 
-  @ApiPropertyOptional({ example: 'Av. Industrial 456, Lima' })
+  @ApiPropertyOptional({ example: 'Jr. Lima 123, Tarapoto' })
   @IsOptional()
   @IsString()
   address?: string;
 
-  @ApiPropertyOptional({ example: 'Pago a 30 días' })
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

@@ -1,31 +1,32 @@
-import { IsEmail, IsString, MinLength, IsIn, IsOptional } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsEnum, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateUserDto {
+  // FIX: code es requerido en el nuevo schema (equivale a Rycode del S12)
+  @ApiProperty({ example: '777', description: 'Código único del operador (Rycode del S12)' })
+  @IsString()
+  code: string;
+
   @ApiProperty({ example: 'Juan Pérez' })
   @IsString()
   name: string;
 
-  @ApiProperty({ example: 'juan@pos.com' })
-  @IsEmail({}, { message: 'Email inválido' })
-  email: string;
+  @ApiPropertyOptional({ example: 'juan@empresa.com' })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
-  @ApiProperty({ example: 'password123' })
+  @ApiProperty({ example: 'contraseña123', minLength: 6 })
   @IsString()
-  @MinLength(6, { message: 'La contraseña debe tener al menos 6 caracteres' })
+  @MinLength(6)
   password: string;
 
-  @ApiProperty({
-    example: 'seller',
-    enum: ['admin', 'seller', 'warehouse', 'billing'],
-    description: 'admin | seller | warehouse | billing',
-  })
-  @IsIn(['admin', 'seller', 'warehouse', 'billing'], {
-    message: 'Rol inválido. Usa: admin, seller, warehouse o billing',
-  })
-  role: string;
+  @ApiPropertyOptional({ example: 'SELLER', enum: ['ADMIN','SELLER','WAREHOUSE','BILLING','CASHIER'] })
+  @IsOptional()
+  @IsString()
+  role?: string;
 
-  @ApiPropertyOptional({ example: '+51 987654321' })
+  @ApiPropertyOptional({ example: '987654321' })
   @IsOptional()
   @IsString()
   phone?: string;

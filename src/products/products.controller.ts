@@ -7,6 +7,7 @@ import {
   Param,
   Query,
   UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
@@ -54,7 +55,7 @@ export class ProductsController {
   @Patch('categories/:id')
   @Roles('admin', 'warehouse')
   @ApiOperation({ summary: 'Actualizar categoría (admin, warehouse)' })
-  updateCategory(@Param('id') id: string, @Body() dto: CreateCategoryDto) {
+  updateCategory(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateCategoryDto) {
     return this.productsService.updateCategory(id, dto);
   }
 

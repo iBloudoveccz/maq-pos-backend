@@ -16,24 +16,25 @@ export class PurchaseItemDto {
   @IsString()
   productId: string;
 
-  @ApiProperty({ example: 12, description: 'Cantidad comprada' })
+  @ApiProperty({ example: 12, description: 'Cantidad comprada (Jhsl)' })
   @IsNumber()
   @IsPositive()
   @Type(() => Number)
   quantity: number;
 
-  @ApiProperty({ example: 1.56, description: 'Precio de costo unitario' })
+  @ApiProperty({ example: 1.56, description: 'Precio de costo unitario (Jhj)' })
   @IsNumber()
   @IsPositive()
   @Type(() => Number)
   unitCost: number;
 
-  @ApiPropertyOptional({ example: 2.00, description: 'Precio de venta sugerido — actualiza el producto si se envía' })
+  // FIX: era salePrice → retailPrice (S12: Lsj)
+  @ApiPropertyOptional({ example: 2.00, description: 'Precio de venta sugerido (Lsj) — actualiza el producto si se envía' })
   @IsOptional()
   @IsNumber()
-  @IsPositive()
+  @Min(0)
   @Type(() => Number)
-  salePrice?: number;
+  retailPrice?: number;
 }
 
 export class CreatePurchaseDto {
@@ -48,17 +49,18 @@ export class CreatePurchaseDto {
   @Type(() => PurchaseItemDto)
   items: PurchaseItemDto[];
 
-  @ApiPropertyOptional({ example: 'Factura BCP 001-00123' })
+  @ApiPropertyOptional({ example: 'Factura 001-00123' })
   @IsOptional()
   @IsString()
-  invoiceNumber?: string;
+  supplierInvoice?: string;
 
-  @ApiPropertyOptional({ example: 0, description: 'IGV de la compra en soles' })
+  // FIX: era 'tax' → 'taxAmount'
+  @ApiPropertyOptional({ example: 0, description: 'IGV de la compra en soles (Tax)' })
   @IsOptional()
   @IsNumber()
   @Min(0)
   @Type(() => Number)
-  tax?: number;
+  taxAmount?: number;
 
   @ApiPropertyOptional({ example: 'Inventario inicial de temporada' })
   @IsOptional()

@@ -33,7 +33,9 @@ export class CustomersService {
         take: limit,
         orderBy: { name: 'asc' },
         include: {
-          _count: { select: { quotes: true } },
+          // FIX: era 'quotes' → ahora es 'sales'
+          _count: { select: { sales: true } },
+          loyaltyCard: { select: { cardNumber: true, balance: true, isActive: true } },
         },
       }),
       this.prisma.customer.count({ where }),
@@ -49,32 +51,34 @@ export class CustomersService {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
       include: {
-        quotes: {
+        loyaltyCard: true,
+        // FIX: era 'quotes' → 'sales', quoteNumber → saleNumber, total → totalAmount
+        sales: {
           orderBy: { createdAt: 'desc' },
           take: 10,
           select: {
-            id: true,
-            quoteNumber: true,
-            status: true,
-            total: true,
-            createdAt: true,
+            id:          true,
+            saleNumber:  true,   // era quoteNumber
+            status:      true,
+            totalAmount: true,   // era total
+            createdAt:   true,
           },
         },
-        _count: { select: { quotes: true } },
+        _count: { select: { sales: true } },
       },
     });
 
     if (!customer) throw new NotFoundException(`Cliente ${id} no encontrado`);
 
-    // Calcular total comprado (solo cotizaciones pagadas)
-    const totalPurchased = await this.prisma.quote.aggregate({
-      where: { customerId: id, status: 'PAID' },
-      _sum: { total: true },
+    // FIX: era prisma.quote → prisma.sale. Las ventas válidas tienen status VALID
+    const totalPurchased = await this.prisma.sale.aggregate({
+      where: { customerId: id, status: 'VALID' },
+      _sum:  { totalAmount: true },
     });
 
     return {
       ...customer,
-      totalPurchased: totalPurchased._sum.total ?? 0,
+      totalPurchased: Number(totalPurchased._sum.totalAmount ?? 0),
     };
   }
 
@@ -87,12 +91,13 @@ export class CustomersService {
   }
 
   async create(dto: CreateCustomerDto) {
-    // Verificar teléfono único
-    const existing = await this.prisma.customer.findFirst({
-      where: { phone: dto.phone },
-    });
-    if (existing) {
-      throw new ConflictException(`Ya existe un cliente con el teléfono ${dto.phone}`);
+    if (dto.phone) {
+      const existing = await this.prisma.customer.findFirst({
+        where: { phone: dto.phone },
+      });
+      if (existing) {
+        throw new ConflictException(`Ya existe un cliente con el teléfono ${dto.phone}`);
+      }
     }
 
     return this.prisma.customer.create({ data: dto });
@@ -101,7 +106,6 @@ export class CustomersService {
   async update(id: string, dto: UpdateCustomerDto) {
     await this.findOne(id);
 
-    // Verificar teléfono único si cambia
     if (dto.phone) {
       const existing = await this.prisma.customer.findFirst({
         where: { phone: dto.phone, NOT: { id } },
@@ -118,36 +122,38 @@ export class CustomersService {
   async getHistory(id: string) {
     await this.findOne(id);
 
-    const quotes = await this.prisma.quote.findMany({
-      where: { customerId: id },
+    // FIX: era prisma.quote → prisma.sale
+    const sales = await this.prisma.sale.findMany({
+      where:   { customerId: id },
       orderBy: { createdAt: 'desc' },
       include: {
         items: {
           select: {
             productName: true,
-            quantity: true,
-            unitPrice: true,
-            subtotal: true,
+            quantity:    true,
+            unitPrice:   true,
+            totalAmount: true,  // era subtotal
           },
         },
         payments: {
           select: {
-            amount: true,
+            amountApplied: true,  // era amount
             paymentMethod: { select: { name: true } },
-            createdAt: true,
+            paidAt:        true,
           },
         },
       },
     });
 
-    const totalPurchased = quotes
-      .filter((q) => q.status === 'PAID')
-      .reduce((sum, q) => sum + q.total, 0);
+    // FIX: era q.total → Number(s.totalAmount), status PAID → VALID
+    const totalPurchased = sales
+      .filter((s) => s.status === 'VALID')
+      .reduce((sum, s) => sum + Number(s.totalAmount), 0);
 
     return {
-      totalOrders: quotes.length,
+      totalOrders:    sales.length,
       totalPurchased: parseFloat(totalPurchased.toFixed(2)),
-      quotes,
+      sales,
     };
   }
 }

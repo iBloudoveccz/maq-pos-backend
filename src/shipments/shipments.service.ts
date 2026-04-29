@@ -1,107 +1,139 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { UpdateShipmentDto } from './dto/update-shipment.dto';
 
-/**
- * ShipmentsService
- *
- * ⚠️ ESQUELETO TANDA 1 — todos los métodos lanzan NotImplementedException.
- * El objetivo de Tanda 1 es que el proyecto compile. La implementación real
- * va en Tanda 2 junto con los siguientes ajustes pendientes:
- *
- * MISMATCHES PENDIENTES (Tanda 2):
- *
- *  1. ID: el controller hace `@Param('id', ParseIntPipe)` y declara `id: number`,
- *     pero `Shipment.id` en el schema es `String @default(uuid())`. Hay que
- *     decidir: cambiar el controller a aceptar string (recomendado), o agregar
- *     un id numérico secundario al modelo Shipment.
- *
- *  2. STATUS: el controller acepta strings en minúsculas
- *     ('pending', 'preparing', 'shipped', 'in_transit', 'delivered', 'failed'),
- *     pero el enum `ShipmentStatus` es:
- *     PENDING | SHIPPED | IN_TRANSIT | DELIVERED | RETURNED.
- *     Faltan 'preparing' y 'failed' (¿agregar al enum o mapear a otros?).
- *
- *  3. SNAKE_CASE en el DTO: `tracking_number`, `courier_id`, `shipping_address`
- *     vs el schema en camelCase: `trackingNumber`, `courierId`, etc.
- *     Hay que renombrar los campos del DTO (o mapear en el service).
- *
- *  4. ROLES: `@Roles('admin', 'warehouse', 'seller')` en minúsculas. El
- *     RolesGuard ya hace toUpperCase para que funcionen ambos, pero conviene
- *     normalizar a `UserRole.ADMIN`, etc., y eliminar el toUpperCase del guard.
- */
 @Injectable()
 export class ShipmentsService {
   constructor(private prisma: PrismaService) {}
 
-  findAll(opts: {
-    status?:    string;
+  async findAll(filters: {
+    status?: string;
     courierId?: number;
-    dateFrom?:  Date;
-    dateTo?:    Date;
-    page:       number;
-    limit:      number;
+    dateFrom?: Date;
+    dateTo?: Date;
+    page?: number;
+    limit?: number;
   }) {
-    throw new NotImplementedException(
-      'ShipmentsService.findAll — pendiente Tanda 2. ' +
-      'Hay que mapear status (lowercase → ShipmentStatus enum) y resolver id (uuid).',
-    );
+    const { status, page = 1, limit = 20 } = filters;
+    const skip  = (page - 1) * limit;
+    const where: any = {};
+    if (status) where.status = this.mapStatus(status);
+
+    const [items, total] = await Promise.all([
+      this.prisma.storeOrder.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true, orderNumber: true, customerName: true, customerPhone: true,
+          status: true, trackingNumber: true, shippingAddress: true,
+          shippingDistrict: true, shippingCity: true, totalAmount: true, updatedAt: true,
+        },
+      }),
+      this.prisma.storeOrder.count({ where }),
+    ]);
+
+    return { items, meta: { total, page, limit } };
   }
 
-  findByStatus(status: string) {
-    throw new NotImplementedException(
-      `ShipmentsService.findByStatus("${status}") — pendiente Tanda 2.`,
-    );
+  async findByStatus(status: string) {
+    return this.prisma.storeOrder.findMany({
+      where:   { status: this.mapStatus(status) as any },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true, orderNumber: true, customerName: true, customerPhone: true,
+        status: true, trackingNumber: true, shippingAddress: true,
+        shippingDistrict: true, shippingCity: true, totalAmount: true, updatedAt: true,
+      },
+    });
   }
 
-  getStats(opts: { dateFrom?: Date; dateTo?: Date }) {
-    throw new NotImplementedException(
-      'ShipmentsService.getStats — pendiente Tanda 2.',
-    );
+  async findOne(id: number | string) {
+    const order = await this.prisma.storeOrder.findFirst({
+      where: { id: String(id) },
+      include: { items: true, payments: true },
+    });
+    if (!order) throw new NotFoundException(`Pedido ${id} no encontrado`);
+    return order;
   }
 
-  findOne(id: number) {
-    throw new NotImplementedException(
-      `ShipmentsService.findOne(${id}) — pendiente Tanda 2. Decidir: id numérico o uuid string.`,
-    );
+  async getStats(filters: { dateFrom?: Date; dateTo?: Date }) {
+    const where: any = {};
+    if (filters.dateFrom || filters.dateTo) {
+      where.createdAt = {};
+      if (filters.dateFrom) where.createdAt.gte = filters.dateFrom;
+      if (filters.dateTo)   where.createdAt.lte = filters.dateTo;
+    }
+    const [pending, processing, shipped, delivered, cancelled] = await Promise.all([
+      this.prisma.storeOrder.count({ where: { ...where, status: 'PENDING_PAYMENT' } }),
+      this.prisma.storeOrder.count({ where: { ...where, status: 'PROCESSING' } }),
+      this.prisma.storeOrder.count({ where: { ...where, status: 'SHIPPED' } }),
+      this.prisma.storeOrder.count({ where: { ...where, status: 'DELIVERED' } }),
+      this.prisma.storeOrder.count({ where: { ...where, status: 'CANCELLED' } }),
+    ]);
+    return { pending, processing, shipped, delivered, cancelled };
   }
 
-  update(id: number, dto: UpdateShipmentDto, userId: string) {
-    throw new NotImplementedException(
-      `ShipmentsService.update(${id}) — pendiente Tanda 2.`,
-    );
+  async update(id: number, dto: any, userId: string) {
+    await this.findOne(id);
+    return this.prisma.storeOrder.update({
+      where: { id: String(id) },
+      data: {
+        ...(dto.status         && { status: dto.status }),
+        ...(dto.trackingNumber && { trackingNumber: dto.trackingNumber }),
+        ...(dto.notes          && { notes: dto.notes }),
+      },
+    });
   }
 
-  dispatch(
-    id: number,
-    opts: {
-      trackingNumber: string;
-      courierId?:     number;
-      notes?:         string;
-      userId:         string;
-    },
-  ) {
-    throw new NotImplementedException(
-      `ShipmentsService.dispatch(${id}) — pendiente Tanda 2.`,
-    );
+  async dispatch(id: number, dto: {
+    trackingNumber: string;
+    courierId?: number;
+    notes?: string;
+    userId: string;
+  }) {
+    await this.findOne(id);
+    return this.prisma.storeOrder.update({
+      where: { id: String(id) },
+      data: {
+        status: 'SHIPPED',
+        trackingNumber: dto.trackingNumber,
+        ...(dto.notes && { notes: dto.notes }),
+      },
+    });
   }
 
-  markDelivered(id: number, notes: string | undefined, userId: string) {
-    throw new NotImplementedException(
-      `ShipmentsService.markDelivered(${id}) — pendiente Tanda 2.`,
-    );
+  async markDelivered(id: number, notes?: string, userId?: string) {
+    await this.findOne(id);
+    return this.prisma.storeOrder.update({
+      where: { id: String(id) },
+      data:  { status: 'DELIVERED' },
+    });
   }
 
-  markFailed(id: number, reason: string, userId: string) {
-    throw new NotImplementedException(
-      `ShipmentsService.markFailed(${id}) — pendiente Tanda 2. ` +
-      'Nota: "failed" no existe en ShipmentStatus enum, ¿agregar o mapear a RETURNED?',
-    );
+  async markFailed(id: number, reason: string, userId: string) {
+    await this.findOne(id);
+    return this.prisma.storeOrder.update({
+      where: { id: String(id) },
+      data:  { status: 'CANCELLED', notes: reason },
+    });
   }
 
-  getHistory(id: number) {
-    throw new NotImplementedException(
-      `ShipmentsService.getHistory(${id}) — pendiente Tanda 2.`,
-    );
+  async getHistory(id: number) {
+    const order = await this.findOne(id);
+    return { order, history: [] };
+  }
+
+  private mapStatus(status: string): string {
+    const map: Record<string, string> = {
+      pending:    'PENDING_PAYMENT',
+      processing: 'PROCESSING',
+      shipped:    'SHIPPED',
+      in_transit: 'SHIPPED',
+      delivered:  'DELIVERED',
+      failed:     'CANCELLED',
+      cancelled:  'CANCELLED',
+    };
+    return map[status.toLowerCase()] ?? status.toUpperCase();
   }
 }
