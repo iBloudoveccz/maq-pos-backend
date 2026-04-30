@@ -23,6 +23,7 @@ import { PaymentsModule }  from './payments/payments.module';
 import { PurchasesModule } from './purchases/purchases.module';
 import { ShipmentsModule } from './shipments/shipments.module';
 import { BillingModule }   from './billing/billing.module';
+import { CategoriesModule } from './categories/categories.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { BillingModule }   from './billing/billing.module';
     PurchasesModule,
     ShipmentsModule,
     BillingModule,
+    CategoriesModule,
   ],
   controllers: [AppController],
   providers: [
