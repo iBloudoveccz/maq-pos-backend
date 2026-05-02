@@ -80,6 +80,34 @@ export class CreateProductDto {
   @Type(() => Number)
   memberPrice?: number;
 
+  @ApiPropertyOptional({ example: 14.00, description: 'Precio VIP nivel 2' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  vipPrice2?: number;
+ 
+  @ApiPropertyOptional({ example: 13.00, description: 'Precio VIP nivel 3' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  vipPrice3?: number;
+ 
+  @ApiPropertyOptional({ example: 12.00, description: 'Precio VIP nivel 4' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  vipPrice4?: number;
+ 
+  @ApiPropertyOptional({ example: 11.00, description: 'Precio VIP nivel 5' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  vipPrice5?: number;
+
   // FIX: agregado taxRate
   @ApiPropertyOptional({ example: 0.18, description: 'Tasa IGV (0.18 = 18%)' })
   @IsOptional()
@@ -120,4 +148,14 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ example: 'https://...' , description: 'URL o base64 de la imagen principal' })
+  @IsOptional()
+  @IsString()
+  mainImageUrl?: string;
+
+
+
+
+
 }

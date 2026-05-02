@@ -131,7 +131,17 @@ export class ProductsService {
         // FIX: nombres corregidos según nuevo schema
         costPrice:       dto.costPrice       ?? 0,
         retailPrice:     dto.retailPrice     ?? 0,  // era salePrice
-        wholesalePrice1: dto.wholesalePrice1 ?? 0,  // era wholesalePrice
+        wholesalePrice1: dto.wholesalePrice1 ?? 0,
+        wholesalePrice2: dto.wholesalePrice2 ?? 0,
+        wholesalePrice3: dto.wholesalePrice3 ?? 0,
+        memberPrice:     dto.memberPrice     ?? 0,
+        vipPrice2:       dto.vipPrice2       ?? 0,
+        vipPrice3:       dto.vipPrice3       ?? 0,
+        vipPrice4:       dto.vipPrice4       ?? 0,
+        vipPrice5:       dto.vipPrice5       ?? 0,
+        notes:           dto.notes,
+        isFeatured:      dto.isFeatured ?? false,
+        isTaxExempt:     dto.isTaxExempt ?? false,
 
         taxRate:    dto.taxRate    ?? 0.18,
         isActive:   dto.isActive   ?? true,
@@ -140,6 +150,7 @@ export class ProductsService {
         // FIX: categoryId → Number (el schema espera Int)
         categoryId: dto.categoryId ? Number(dto.categoryId) : undefined,
         // NOTA: minStock ya no está en Product — está en Stock por almacén
+        mainImageUrl: dto.mainImageUrl,
       },
       include: { category: { select: { id: true, name: true } } },
     });
@@ -177,7 +188,8 @@ export class ProductsService {
     if (dto.isActive    !== undefined) data.isActive    = dto.isActive;
     if (dto.isPublished !== undefined) data.isPublished = dto.isPublished;
     if (dto.isFeatured  !== undefined) data.isFeatured  = dto.isFeatured;
-    if (dto.categoryId  !== undefined) data.categoryId  = Number(dto.categoryId);
+    if (dto.categoryId    !== undefined) data.categoryId    = Number(dto.categoryId);
+    if (dto.mainImageUrl  !== undefined) data.mainImageUrl  = dto.mainImageUrl;
 
     return this.prisma.product.update({
       where: { id },

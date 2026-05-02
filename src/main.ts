@@ -7,6 +7,10 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
+  // ─── LÍMITE DE PAYLOAD (imágenes base64) ──────────────────────────────────
+  app.use(require('express').json({ limit: '10mb' }));
+  app.use(require('express').urlencoded({ limit: '10mb', extended: true }));
+
   // ─── CORS ─────────────────────────────────────────────────────────────────
   // En producción solo permite el frontend de Vercel
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
