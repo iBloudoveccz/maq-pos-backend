@@ -14,44 +14,111 @@ export class StockService {
 
   // ─── CONSULTAS DE STOCK ───────────────────────────────────────────────────
 
-  async findAll(search?: string) {
-    const where: any = { isActive: true };
-    if (search) {
-      where.OR = [
-        { name:    { contains: search, mode: 'insensitive' } },
-        { sku:     { contains: search, mode: 'insensitive' } },
-        { barcode: { contains: search, mode: 'insensitive' } },
+  /**
+   * Consulta desde Product (no desde Stock) para mostrar TODOS los productos
+   * aunque aún no tengan registros en la tabla Stock.
+   * Retorna el formato StockItem que espera el frontend.
+   */
+  async findAll(filters?: {
+    warehouseId?: string;
+    search?: string;
+    lowStock?: boolean;
+  }) {
+    // Filtro base: solo productos activos
+    const productWhere: any = { isActive: true };
+
+    if (filters?.search) {
+      productWhere.OR = [
+        { name:    { contains: filters.search, mode: 'insensitive' } },
+        { sku:     { contains: filters.search, mode: 'insensitive' } },
+        { barcode: { contains: filters.search, mode: 'insensitive' } },
       ];
     }
 
+    // Filtro de almacén aplicado a la relación stock
+    const stockWhere: any = filters?.warehouseId
+      ? { warehouseId: filters.warehouseId }
+      : undefined;
+
     const products = await this.prisma.product.findMany({
-      where,
+      where:   productWhere,
       orderBy: { name: 'asc' },
       select: {
-        id:         true,
-        name:       true,
-        sku:        true,
-        barcode:    true,
-        unit:       true,
-        costPrice:  true,
-        retailPrice: true,   // FIX: era salePrice → retailPrice
-        // FIX: minStock ya NO está en Product, está en Stock por almacén
-        category:   { select: { name: true } },
-        stock:      { select: { quantity: true, minStock: true, warehouseId: true } },
+        id:           true,
+        name:         true,
+        sku:          true,
+        barcode:      true,
+        unit:         true,
+        costPrice:    true,
+        retailPrice:  true,
+        mainImageUrl: true,
+        category:     { select: { id: true, name: true } },
+        stock: {
+          where: stockWhere,
+          include: {
+            warehouse: { select: { id: true, code: true, name: true } },
+          },
+        },
       },
     });
 
-    return products.map((p) => {
-      // FIX: Decimal → Number() antes de operar
-      const totalStock  = p.stock.reduce((sum, s) => sum + Number(s.quantity), 0);
-      const totalMin    = p.stock.reduce((sum, s) => sum + Number(s.minStock), 0);
-      return {
-        ...p,
-        totalStock,
-        stockValue: totalStock * Number(p.costPrice),
-        isLowStock: totalStock <= totalMin,
-      };
+    // Obtener almacén por defecto para productos sin stock registrado
+    const defaultWarehouse = await this.prisma.warehouse.findFirst({
+      where:   { isActive: true, isBranch: false },
+      orderBy: { createdAt: 'asc' },
+      select:  { id: true, code: true, name: true },
     });
+
+    // Expandir: un producto con N almacenes → N filas
+    // Si no tiene stock, generar una fila con cantidad 0
+    const rows: any[] = [];
+
+    for (const p of products) {
+      const productInfo = {
+        id:           p.id,
+        name:         p.name,
+        sku:          p.sku,
+        barcode:      p.barcode,
+        unit:         p.unit,
+        costPrice:    Number(p.costPrice),
+        retailPrice:  Number(p.retailPrice),
+        mainImageUrl: p.mainImageUrl ?? undefined,
+        category:     p.category ?? undefined,
+      };
+
+      if (p.stock.length === 0) {
+        // Producto sin stock: fila con cantidad 0
+        const qty = 0;
+        if (filters?.lowStock === true && qty > 5) continue; // no aplica filtro lowStock
+        rows.push({
+          id:          `${p.id}_none`,
+          productId:   p.id,
+          warehouseId: defaultWarehouse?.id ?? null,
+          quantity:    0,
+          averageCost: Number(p.costPrice),
+          totalValue:  0,
+          product:     productInfo,
+          warehouse:   defaultWarehouse ?? { id: null, code: '—', name: '—' },
+        });
+      } else {
+        for (const s of p.stock) {
+          const qty = Number(s.quantity);
+          if (filters?.lowStock && qty > 5) continue;
+          rows.push({
+            id:          s.id,
+            productId:   p.id,
+            warehouseId: s.warehouseId,
+            quantity:    qty,
+            averageCost: Number(s.avgCost   ?? p.costPrice),
+            totalValue:  Number(s.stockValue ?? 0),
+            product:     productInfo,
+            warehouse:   s.warehouse ?? defaultWarehouse,
+          });
+        }
+      }
+    }
+
+    return { data: rows, total: rows.length };
   }
 
   async findOne(productId: string) {
@@ -63,8 +130,7 @@ export class StockService {
         sku:         true,
         unit:        true,
         costPrice:   true,
-        retailPrice: true,   // FIX: era salePrice
-        // FIX: minStock está en Stock, no en Product
+        retailPrice: true,
         stock:       true,
       },
     });
@@ -72,7 +138,7 @@ export class StockService {
     if (!product) throw new NotFoundException(`Producto ${productId} no encontrado`);
 
     const totalStock = product.stock.reduce((sum, s) => sum + Number(s.quantity), 0);
-    const totalMin   = product.stock.reduce((sum, s) => sum + Number(s.minStock), 0);
+    const totalMin   = product.stock.reduce((sum, s) => sum + Number(s.minStock),  0);
 
     return {
       ...product,
@@ -82,38 +148,46 @@ export class StockService {
     };
   }
 
+  /**
+   * Resumen ejecutivo para las cards del módulo de inventario.
+   * Retorna los campos que espera el frontend: StockSummary.
+   */
   async getSummary() {
-    // FIX: incluir product con los campos correctos
     const stocks = await this.prisma.stock.findMany({
       include: {
         product: { select: { costPrice: true, retailPrice: true, isActive: true } },
       },
     });
 
-    const active = stocks.filter((s) => s.product.isActive);
+    const active = stocks.filter((s) => s.product?.isActive);
 
-    // FIX: Decimal → Number() en todas las operaciones aritméticas
-    const totalCostValue = active.reduce(
-      (sum, s) => sum + Number(s.quantity) * Number(s.product.costPrice), 0
-    );
-    const totalSaleValue = active.reduce(
-      (sum, s) => sum + Number(s.quantity) * Number(s.product.retailPrice), 0  // FIX: salePrice→retailPrice
-    );
-    const totalUnits    = active.reduce((sum, s) => sum + Number(s.quantity), 0);
-    const totalProducts = new Set(active.map((s) => s.productId)).size;
-
-    const lowStockCount = await this.prisma.stock.count({
-      where: { quantity: { lte: 0 } },
-    });
+    const totalProducts   = new Set(active.map((s) => s.productId)).size;
+    const totalUnits      = active.reduce((sum, s) => sum + Number(s.quantity),   0);
+    const totalValue      = active.reduce((sum, s) => sum + Number(s.stockValue ?? 0), 0);
+    const lowStockCount   = active.filter(
+      (s) => Number(s.quantity) > 0 && Number(s.quantity) <= 5
+    ).length;
+    const outOfStockCount = active.filter((s) => Number(s.quantity) <= 0).length;
 
     return {
       totalProducts,
-      totalUnits:      parseFloat(totalUnits.toFixed(4)),
-      totalCostValue:  parseFloat(totalCostValue.toFixed(2)),
-      totalSaleValue:  parseFloat(totalSaleValue.toFixed(2)),
-      potentialProfit: parseFloat((totalSaleValue - totalCostValue).toFixed(2)),
+      totalUnits:     parseFloat(totalUnits.toFixed(4)),
+      totalValue:     parseFloat(totalValue.toFixed(2)),
       lowStockCount,
+      outOfStockCount,
     };
+  }
+
+  /**
+   * Lista todos los almacenes disponibles.
+   * Usado por el filtro de almacén en el frontend.
+   */
+  async getWarehouses() {
+    return this.prisma.warehouse.findMany({
+      where:   { isActive: true },
+      select:  { id: true, code: true, name: true },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async getLowStock() {
@@ -125,9 +199,8 @@ export class StockService {
         sku:      true,
         unit:     true,
         costPrice: true,
-        category: { select: { name: true } },
-        // FIX: minStock está en stock, no en product
-        stock:    { select: { quantity: true, minStock: true, warehouseId: true } },
+        category:  { select: { name: true } },
+        stock:     { select: { quantity: true, minStock: true, warehouseId: true } },
       },
       orderBy: { name: 'asc' },
     });
@@ -136,7 +209,7 @@ export class StockService {
       .map((p) => ({
         ...p,
         totalStock: p.stock.reduce((sum, s) => sum + Number(s.quantity), 0),
-        totalMin:   p.stock.reduce((sum, s) => sum + Number(s.minStock), 0),
+        totalMin:   p.stock.reduce((sum, s) => sum + Number(s.minStock),  0),
       }))
       .filter((p) => p.totalStock <= p.totalMin);
   }
@@ -149,14 +222,12 @@ export class StockService {
     });
     if (!product) throw new NotFoundException(`Producto ${dto.productId} no encontrado`);
 
-    // Obtener almacén del usuario o el principal
     const user = await this.prisma.user.findUnique({
-      where: { id: userId },
+      where:  { id: userId },
       select: { warehouseId: true },
     });
-    const warehouseId = user?.warehouseId ?? await this.getDefaultWarehouseId();
+    const warehouseId = user?.warehouseId ?? (await this.getDefaultWarehouseId());
 
-    // FIX: Stock tiene @@unique([productId, warehouseId])
     const existingStock = await this.prisma.stock.findUnique({
       where: { productId_warehouseId: { productId: dto.productId, warehouseId } },
     });
@@ -174,13 +245,15 @@ export class StockService {
       if (existingStock) {
         await tx.stock.update({
           where: { productId_warehouseId: { productId: dto.productId, warehouseId } },
-          data:  { quantity: { increment: dto.quantity } },
+          data:  {
+            quantity:   { increment: dto.quantity },
+            stockValue: newQty * Number(product.costPrice),
+          },
         });
       } else {
-        // FIX: Stock requiere warehouseId
         await tx.stock.create({
           data: {
-            productId:  dto.productId,
+            productId: dto.productId,
             warehouseId,
             quantity:   dto.quantity,
             avgCost:    Number(product.costPrice),
@@ -189,33 +262,34 @@ export class StockService {
         });
       }
 
-      // FIX: StockMovement usa quantityIn/quantityOut/balanceQty, no quantity/stockBefore/stockAfter
-      // FIX: movementType debe ser del enum MovementType, no string
       const isPositive = dto.quantity > 0;
       const movement = await tx.stockMovement.create({
         data: {
           productId:    dto.productId,
           warehouseId,
-          // FIX: era string → ahora es MovementType enum
           movementType: (dto.movementType as MovementType) ?? MovementType.ADJUSTMENT,
-          quantityIn:   isPositive ? dto.quantity : 0,
+          quantityIn:   isPositive ? dto.quantity       : 0,
           quantityOut:  isPositive ? 0 : Math.abs(dto.quantity),
           balanceQty:   newQty,
           unitCost:     Number(product.costPrice),
           totalValue:   newQty * Number(product.costPrice),
           notes:        dto.notes,
-          createdById:  userId,  // FIX: era userId → createdById
+          createdById:  userId,
         },
       });
 
-      return { movement, stockBefore: currentQty, stockAfter: newQty };
+      return {
+        movement,
+        stockBefore: currentQty,
+        stockAfter:  newQty,
+      };
     });
   }
 
   // ─── HISTORIAL DE MOVIMIENTOS ─────────────────────────────────────────────
 
   async getMovements(filters: FilterMovementsDto) {
-    const { productId, movementType, dateFrom, dateTo, page = 1, limit = 20 } = filters;
+    const { productId, movementType, dateFrom, dateTo, page = 1, limit = 30 } = filters;
     const skip = (page - 1) * limit;
 
     const where: any = {};
@@ -236,16 +310,33 @@ export class StockService {
         orderBy: { createdAt: 'desc' },
         include: {
           product:   { select: { name: true, sku: true, unit: true } },
-          // FIX: era 'user' → 'createdBy'
+          warehouse: { select: { id: true, name: true, code: true } },
           createdBy: { select: { name: true, code: true } },
         },
       }),
       this.prisma.stockMovement.count({ where }),
     ]);
 
+    // Mapear al formato que espera el frontend (StockMovement)
     return {
-      items,
-      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      data: items.map((m) => ({
+        id:          m.id,
+        type:        m.movementType,
+        quantity:    Number(m.quantityIn) - Number(m.quantityOut),
+        costPrice:   Number(m.unitCost   ?? 0),
+        totalValue:  Number(m.totalValue ?? 0),
+        referenceId: m.documentRef ?? undefined,
+        notes:       m.notes      ?? undefined,
+        createdAt:   m.createdAt.toISOString(),
+        product:     m.product,
+        warehouse:   m.warehouse,
+        user:        m.createdBy
+          ? { id: m.createdBy.code, name: m.createdBy.name }
+          : undefined,
+      })),
+      total,
+      page,
+      limit,
     };
   }
 

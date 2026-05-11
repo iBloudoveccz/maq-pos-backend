@@ -25,19 +25,27 @@ export class StockController {
 
   /**
    * GET /api/v1/stock
-   * Lista stock de todos los productos activos
-   * ?search=crocs
+   * ?search=  ?warehouseId=  ?lowStock=true
    */
   @Get()
   @ApiOperation({ summary: 'Listar stock de todos los productos' })
-  @ApiQuery({ name: 'search', required: false })
-  findAll(@Query('search') search?: string) {
-    return this.stockService.findAll(search);
+  @ApiQuery({ name: 'search',      required: false })
+  @ApiQuery({ name: 'warehouseId', required: false })
+  @ApiQuery({ name: 'lowStock',    required: false })
+  findAll(
+    @Query('search')      search?:      string,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('lowStock')    lowStock?:    string,
+  ) {
+    return this.stockService.findAll({
+      search,
+      warehouseId: warehouseId || undefined,
+      lowStock:    lowStock === 'true',
+    });
   }
 
   /**
    * GET /api/v1/stock/summary
-   * Resumen general: valor total del inventario, productos con stock bajo, etc.
    */
   @Get('summary')
   @ApiOperation({ summary: 'Resumen de valorización del inventario' })
@@ -46,8 +54,17 @@ export class StockController {
   }
 
   /**
+   * GET /api/v1/stock/warehouses  ← NUEVO
+   * Lista almacenes disponibles para el selector del frontend
+   */
+  @Get('warehouses')
+  @ApiOperation({ summary: 'Listar almacenes disponibles' })
+  getWarehouses() {
+    return this.stockService.getWarehouses();
+  }
+
+  /**
    * GET /api/v1/stock/low
-   * Productos con stock igual o menor al mínimo configurado
    */
   @Get('low')
   @ApiOperation({ summary: 'Productos con stock bajo o en cero' })
@@ -57,7 +74,6 @@ export class StockController {
 
   /**
    * GET /api/v1/stock/movements
-   * Historial de movimientos con filtros
    */
   @Get('movements')
   @ApiOperation({ summary: 'Historial de movimientos de stock' })
@@ -67,7 +83,8 @@ export class StockController {
 
   /**
    * GET /api/v1/stock/:productId
-   * Stock de un producto específico
+   * IMPORTANTE: debe ir DESPUÉS de todas las rutas /stock/algo
+   * para que NestJS no confunda "summary", "warehouses", etc. con productId
    */
   @Get(':productId')
   @ApiOperation({ summary: 'Stock de un producto específico' })
@@ -77,12 +94,10 @@ export class StockController {
 
   /**
    * POST /api/v1/stock/adjust
-   * Ajuste manual de stock — solo admin y warehouse
-   * Tipos: ADJUSTMENT, OWNUSE, RETURN, STOCKTAKING
    */
   @Post('adjust')
   @Roles('admin', 'warehouse')
-  @ApiOperation({ summary: 'Ajuste manual de stock (admin, warehouse)' })
+  @ApiOperation({ summary: 'Ajuste manual de stock' })
   adjust(
     @Body() dto: AdjustStockDto,
     @CurrentUser('id') userId: string,

@@ -25,6 +25,9 @@ import { ShipmentsModule } from './shipments/shipments.module';
 import { BillingModule }   from './billing/billing.module';
 import { CategoriesModule } from './categories/categories.module';
 
+// app.module.ts — agrega StoreModule a imports[]
+import { StoreModule } from './store/store.module';
+
 @Module({
   imports: [
     // Config global — disponible en todos los módulos sin importar
@@ -50,6 +53,7 @@ import { CategoriesModule } from './categories/categories.module';
     ShipmentsModule,
     BillingModule,
     CategoriesModule,
+    StoreModule,
   ],
   controllers: [AppController],
   providers: [
