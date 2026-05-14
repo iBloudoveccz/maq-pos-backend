@@ -17,8 +17,13 @@ export class ProductsService {
 
   async findAll(filters: FilterProductDto) {
     const { search, categoryId, isActive, lowStock, page = 1, limit = 20 } = filters;
-    const skip = (page - 1) * limit;
+    // categoryIds viene como string[] del query param → convertir a number[]
+    const rawIds = (filters as any).categoryIds;
+    const categoryIds: number[] | undefined = rawIds
+      ? (Array.isArray(rawIds) ? rawIds : [rawIds]).map(Number).filter(Boolean)
+      : undefined;
 
+    const skip = (page - 1) * limit;
     const where: any = {};
 
     if (search) {
@@ -29,49 +34,41 @@ export class ProductsService {
       ];
     }
 
-    // FIX: categoryId llega como string del query param → convertir a número
-    if (categoryId) where.categoryId = Number(categoryId);
+    // Soporte para filtro múltiple (padre + hijos) o filtro simple
+    if (categoryIds?.length) {
+      where.categoryId = { in: categoryIds };
+    } else if (categoryId) {
+      where.categoryId = Number(categoryId);
+    }
+
     if (isActive !== undefined) where.isActive = isActive;
 
-    // FIX: lowStock filtra por stock.quantity <= stock.minStock
     if (lowStock) {
-      where.stock = {
-        some: {
-          quantity: { lte: 0 }, // simplificado: stock en 0 o menos
-        },
-      };
+      where.stock = { some: { quantity: { lte: 0 } } };
     }
 
     const [items, total] = await Promise.all([
       this.prisma.product.findMany({
         where,
         skip,
-        take: limit,
-        orderBy: { name: 'asc' },
+        take:     limit,
+        orderBy:  { name: 'asc' },
         include: {
-          category: { select: { id: true, name: true } },
-          // FIX: incluir minStock de la tabla stock
-          stock: { select: { quantity: true, minStock: true, warehouseId: true } },
+          category: { select: { id: true, name: true, parentId: true } },
+          stock:    { select: { quantity: true, minStock: true, warehouseId: true } },
         },
       }),
       this.prisma.product.count({ where }),
     ]);
 
-    // FIX: Decimal → Number() antes de operar con +
-    const itemsWithStock = items.map((p) => {
-      const totalStock  = p.stock.reduce((sum, s) => sum + Number(s.quantity), 0);
-      const minStock    = p.stock.reduce((sum, s) => sum + Number(s.minStock), 0);
-      return {
-        ...p,
-        totalStock,
-        isLowStock: totalStock <= minStock,
-      };
+    const data = items.map((p) => {
+      const totalStock = p.stock.reduce((sum, s) => sum + Number(s.quantity), 0);
+      const minStock   = p.stock.reduce((sum, s) => sum + Number(s.minStock),  0);
+      return { ...p, totalStock, isLowStock: totalStock <= minStock };
     });
 
-    return {
-      items: itemsWithStock,
-      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
-    };
+    // Retornar { data, total, page, limit } — formato que espera el frontend
+    return { data, total, page, limit };
   }
 
   async findOne(id: string) {
@@ -80,7 +77,6 @@ export class ProductsService {
       include: {
         category: true,
         stock:    true,
-        // FIX: era 'suppliers' → ahora es 'supplierProducts'
         supplierProducts: {
           include: { supplier: { select: { id: true, name: true, code: true } } },
         },
@@ -88,9 +84,7 @@ export class ProductsService {
     });
     if (!product) throw new NotFoundException(`Producto ${id} no encontrado`);
 
-    // FIX: Decimal → Number()
     const totalStock = product.stock.reduce((sum, s) => sum + Number(s.quantity), 0);
-
     return { ...product, totalStock };
   }
 
@@ -113,7 +107,6 @@ export class ProductsService {
       const existing = await this.prisma.product.findFirst({ where: { sku: dto.sku } });
       if (existing) throw new ConflictException(`El SKU ${dto.sku} ya existe`);
     }
-
     if (dto.barcode) {
       const existing = await this.prisma.product.findFirst({ where: { barcode: dto.barcode } });
       if (existing) throw new ConflictException(`El código de barras ${dto.barcode} ya existe`);
@@ -121,16 +114,15 @@ export class ProductsService {
 
     return this.prisma.product.create({
       data: {
-        name:        dto.name,
-        sku:         dto.sku ?? `SKU-${Date.now()}`,
-        barcode:     dto.barcode,
-        description: dto.description,
-        spec:        dto.spec,
-        unit:        dto.unit ?? 'Unid',
-
-        // FIX: nombres corregidos según nuevo schema
+        name:            dto.name,
+        sku:             dto.sku ?? `SKU-${Date.now()}`,
+        barcode:         dto.barcode,
+        description:     dto.description,
+        spec:            dto.spec,
+        unit:            dto.unit ?? 'Unid',
+        notes:           dto.notes,
         costPrice:       dto.costPrice       ?? 0,
-        retailPrice:     dto.retailPrice     ?? 0,  // era salePrice
+        retailPrice:     dto.retailPrice     ?? 0,
         wholesalePrice1: dto.wholesalePrice1 ?? 0,
         wholesalePrice2: dto.wholesalePrice2 ?? 0,
         wholesalePrice3: dto.wholesalePrice3 ?? 0,
@@ -139,20 +131,15 @@ export class ProductsService {
         vipPrice3:       dto.vipPrice3       ?? 0,
         vipPrice4:       dto.vipPrice4       ?? 0,
         vipPrice5:       dto.vipPrice5       ?? 0,
-        notes:           dto.notes,
-        isFeatured:      dto.isFeatured ?? false,
-        isTaxExempt:     dto.isTaxExempt ?? false,
-
-        taxRate:    dto.taxRate    ?? 0.18,
-        isActive:   dto.isActive   ?? true,
-        isPublished: dto.isPublished ?? true,
-
-        // FIX: categoryId → Number (el schema espera Int)
-        categoryId: dto.categoryId ? Number(dto.categoryId) : undefined,
-        // NOTA: minStock ya no está en Product — está en Stock por almacén
-        mainImageUrl: dto.mainImageUrl,
+        taxRate:         dto.taxRate         ?? 0.18,
+        isTaxExempt:     dto.isTaxExempt     ?? false,
+        isActive:        dto.isActive        ?? true,
+        isPublished:     dto.isPublished     ?? true,
+        isFeatured:      dto.isFeatured      ?? false,
+        categoryId:      dto.categoryId ? Number(dto.categoryId) : undefined,
+        mainImageUrl:    dto.mainImageUrl,
       },
-      include: { category: { select: { id: true, name: true } } },
+      include: { category: { select: { id: true, name: true, parentId: true } } },
     });
   }
 
@@ -160,41 +147,33 @@ export class ProductsService {
     await this.findOne(id);
 
     if (dto.sku) {
-      const existing = await this.prisma.product.findFirst({
-        where: { sku: dto.sku, NOT: { id } },
-      });
+      const existing = await this.prisma.product.findFirst({ where: { sku: dto.sku, NOT: { id } } });
       if (existing) throw new ConflictException(`El SKU ${dto.sku} ya existe`);
     }
-
     if (dto.barcode) {
-      const existing = await this.prisma.product.findFirst({
-        where: { barcode: dto.barcode, NOT: { id } },
-      });
+      const existing = await this.prisma.product.findFirst({ where: { barcode: dto.barcode, NOT: { id } } });
       if (existing) throw new ConflictException(`El código de barras ${dto.barcode} ya existe`);
     }
 
-    // FIX: construir data explícitamente para evitar pasar campos inválidos
+    // Mapear todos los campos opcionales
     const data: any = {};
-    if (dto.name        !== undefined) data.name        = dto.name;
-    if (dto.sku         !== undefined) data.sku         = dto.sku;
-    if (dto.barcode     !== undefined) data.barcode     = dto.barcode;
-    if (dto.description !== undefined) data.description = dto.description;
-    if (dto.spec        !== undefined) data.spec        = dto.spec;
-    if (dto.unit        !== undefined) data.unit        = dto.unit;
-    if (dto.costPrice       !== undefined) data.costPrice       = dto.costPrice;
-    if (dto.retailPrice     !== undefined) data.retailPrice     = dto.retailPrice;
-    if (dto.wholesalePrice1 !== undefined) data.wholesalePrice1 = dto.wholesalePrice1;
-    if (dto.taxRate     !== undefined) data.taxRate     = dto.taxRate;
-    if (dto.isActive    !== undefined) data.isActive    = dto.isActive;
-    if (dto.isPublished !== undefined) data.isPublished = dto.isPublished;
-    if (dto.isFeatured  !== undefined) data.isFeatured  = dto.isFeatured;
-    if (dto.categoryId    !== undefined) data.categoryId    = Number(dto.categoryId);
-    if (dto.mainImageUrl  !== undefined) data.mainImageUrl  = dto.mainImageUrl;
+    const fields = [
+      'name','sku','barcode','description','spec','unit','notes',
+      'costPrice','retailPrice',
+      'wholesalePrice1','wholesalePrice2','wholesalePrice3',
+      'memberPrice','vipPrice2','vipPrice3','vipPrice4','vipPrice5',
+      'taxRate','isTaxExempt','isActive','isPublished','isFeatured','mainImageUrl',
+    ] as const;
+
+    for (const f of fields) {
+      if ((dto as any)[f] !== undefined) data[f] = (dto as any)[f];
+    }
+    if (dto.categoryId !== undefined) data.categoryId = dto.categoryId ? Number(dto.categoryId) : null;
 
     return this.prisma.product.update({
       where: { id },
       data,
-      include: { category: { select: { id: true, name: true } } },
+      include: { category: { select: { id: true, name: true, parentId: true } } },
     });
   }
 
@@ -216,32 +195,42 @@ export class ProductsService {
     });
   }
 
+  async delete(id: string) {
+    await this.findOne(id);
+    return this.prisma.product.delete({ where: { id } });
+  }
+
   // ─── CATEGORÍAS ────────────────────────────────────────────────────────────
 
   async findAllCategories() {
-    // FIX: era this.prisma.productCategory → ahora es this.prisma.category
     return this.prisma.category.findMany({
       orderBy: { name: 'asc' },
-      include: {
-        _count: { select: { products: true } },
-      },
+      include: { _count: { select: { products: true } } },
     });
   }
 
   async createCategory(dto: CreateCategoryDto) {
-    // FIX: era this.prisma.productCategory → this.prisma.category
     const existing = await this.prisma.category.findFirst({
       where: { name: { equals: dto.name, mode: 'insensitive' } },
     });
     if (existing) throw new ConflictException(`La categoría "${dto.name}" ya existe`);
-
     return this.prisma.category.create({ data: dto });
   }
 
   async updateCategory(id: number, dto: CreateCategoryDto) {
-    // FIX: id es Int en Category, no String
     const cat = await this.prisma.category.findUnique({ where: { id } });
     if (!cat) throw new NotFoundException(`Categoría ${id} no encontrada`);
     return this.prisma.category.update({ where: { id }, data: dto });
+  }
+
+  async deleteCategory(id: number) {
+    const cat = await this.prisma.category.findUnique({
+      where:   { id },
+      include: { _count: { select: { products: true } } },
+    });
+    if (!cat) throw new NotFoundException(`Categoría ${id} no encontrada`);
+    if (cat._count.products > 0)
+      throw new ConflictException(`No se puede eliminar: la categoría tiene ${cat._count.products} productos`);
+    return this.prisma.category.delete({ where: { id } });
   }
 }
